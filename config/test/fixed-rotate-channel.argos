@@ -1,0 +1,20 @@
+{
+  node_router='
+    input -> c::Counter() -> Discard;
+
+    loghandler::LogHandler() -> q::Queue() -> output;
+    q[1] -> log_qdrops::Counter() -> Discard;
+
+    Idle -> pkt_qdrops::Counter() -> Idle;
+
+    FixedChanRotate(HANDLER chan_mgr.lease_channel, INTERVAL 2, SYNCHRONIZE 300);
+
+    Script(wait 10,
+#include "../script/chanmgr_stats.script"
+        loop);'
+
+  node_taps='merged'
+
+  server_router='
+    input -> loghandler::LogHandler() -> Quit("unexpected loghandler output") -> Discard;'
+}

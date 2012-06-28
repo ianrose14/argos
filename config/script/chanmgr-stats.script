@@ -1,0 +1,3 @@
+set msg $(sprintf "host=%s %s" $(sys.hostname) "$(chan_mgr.stats)"),
+write loghandler.log chan_mgr DATA "$(msg)",
+write chan_mgr.reset,

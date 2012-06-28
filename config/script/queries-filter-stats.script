@@ -1,0 +1,6 @@
+set msg $(sprintf "STATS host=%s accepted-pkts=%u accepted-bytes=%u filtered-pkts=%u filtered-bytes=%u"
+        $(sys.hostname) $(query_accepted.count) $(query_accepted.byte_count)
+        $(query_filtered.count) $(query_filtered.byte_count)),
+write loghandler.log queryfilt DATA "$(msg)",
+write query_accepted.reset,
+write query_filtered.reset,

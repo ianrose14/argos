@@ -1,0 +1,7 @@
+set msg $(sprintf "OUT-STATS host=%s count=%u bytes=%u avg-compress-rate=%s avg-compress-size=%s avg-cpu=%s"
+        $(sys.hostname) $(to_server_proxy.count) $(to_server_proxy.byte_count)
+        $(to_server_proxy.avg_compress_rate) $(to_server_proxy.avg_compress_size)
+        $(to_server_proxy.avg_cpu)),
+write loghandler.log to_server DATA "$(msg)",
+write to_server_proxy.reset,
+write to_server_proxy.reset_avgs,

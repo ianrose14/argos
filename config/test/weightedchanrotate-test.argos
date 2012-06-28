@@ -1,0 +1,15 @@
+{
+  node_router='
+    input -> c::Counter()
+        -> wcr::WeightedChanRotate(HANDLER chan_mgr.lease_channel, PRIORITY 5,
+                                   PERIOD 5, MIN_INTERVAL 0.1, LOGGING DEBUG)
+        -> Discard;
+
+    Idle -> output;
+
+    Script(wait 10,
+#include "../script/chanmgr-stats.script"
+        loop);'
+
+  node_taps='raw'
+}

@@ -1,0 +1,3 @@
+{ node_router='input -> ToDump(dump.pcap, ENCAP 802_11) -> Discard; Idle -> output;'
+  node_taps='raw'
+}

@@ -1,0 +1,59 @@
+{
+  node_router='
+    // raw tap: look for special traffic events!
+    input[0] -> GuessChannel(TRACKER assoc)
+        -> sw::Switch(0)
+        -> Script(TYPE PACKET, write s.step, return 0)
+        -> wcr::WeightedChanRotate(HANDLER chan_mgr.lease_channel, PRIORITY 5,
+                                   PERIOD 5, MIN_INTERVAL 0.1)
+        -> Classifier(2/C0C0)
+        -> geo_focus::GeoFocusChannel(FOCUS_HANDLER wifi_ol.proxy_handler_write,
+                                      SETCHAN_HANDLER chan_mgr.lease_channel,
+                                      SELF_ONLY true,
+                                      PRIORITY 0, DURATION 20, COOLDOWN 10)
+        -> spf::SplitFirst(1)
+        -> Discard;
+
+    s::Script(wait, set start $(now), write sw.switch 1, wait,
+              set delay $(sub $(now) $(start)),
+              set ideal $(sub $ARGOS_EVENT_START $ARGOS_FILE_START),
+              set msg $(sprintf "DETECT host=%s detect-time=%s delay=%s"
+                      $(sys.hostname) $(delay) $(sub $delay $ideal)),
+              write loghandler.log detect INFO "$(msg)");
+
+    sw[1] -> wcr;
+
+    spf[1] -> Script(TYPE PACKET, write s.step, return 0)
+        -> Print("event_detect", TIMESTAMP true)
+        -> RadiotapEncap()
+        -> PrettyPrint("event_detect", DLT IEEE802_11_RADIO, MAXLENGTH 140, DETAILED true, TIMESTAMP true)
+        -> Discard;
+
+    // merged tap: count merged special traffic events
+    input[1] -> cl::Classifier(2/C0C0, 2/C0C1)
+        -> detect_cnt::Counter()
+        -> RadiotapEncap()
+        -> PrettyPrint("merge dump", DLT IEEE802_11_RADIO, MAXLENGTH 140, NUMBER true, DETAILED true, TIMESTAMP true)
+        -> Discard;
+
+    cl[1] -> missed_cnt::Counter() -> Discard;
+
+    loghandler::LogHandler() -> q::Queue() -> output;
+
+    Script(wait 10,
+        set msg $(sprintf "STATS host=%s pkt-count=%u delayed-count=%u"
+                  $(sys.hostname) $(mch_sim.total_packets) $(mch_sim.delayed_packets)),
+        write loghandler.log mch_sim INFO "$(msg)",
+        write mch_sim.reset,
+        set msg $(sprintf "DETECT-STATS host=%s total-count=%u total-missed=%u"
+                  $(sys.hostname) $(detect_cnt.count) $(missed_cnt.count)),
+        write loghandler.log detect INFO "$(msg)",
+#include "../script/sysinfo-stats.script"
+#include "../script/chanmgr-stats.script"
+        loop);'
+
+  node_taps='raw, merged'
+
+  server_router='
+    input -> loghandler::LogHandler() -> Quit("unexpected loghandler output") -> Discard;'
+}

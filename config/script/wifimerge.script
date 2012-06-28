@@ -1,0 +1,12 @@
+set msg $(sprintf "STATS host=%s in-count=%s out-merges=%s out-dupes=%s avg-merge=%s pkts=%s"
+        $(sys.hostname) $(wifi_merge_in.count) $(wifi_merge_out.count)
+        $(wifi_merge_dupes.count) $(wifi_merge.avg_merge) $(wifi_merge.packet_count)),
+write loghandler.log wifi_merge DATA "$(msg)",
+set msg $(sprintf "STATUS host=%s packets=%s records=%s sendq=%s expireq=%s mem=%s"
+        $(sys.hostname) $(wifi_merge.packet_count) $(wifi_merge.record_count)
+        $(wifi_merge.send_len) $(wifi_merge.expire_len) $(wifi_merge.mem_usage)),
+write loghandler.log wifi_merge DATA "$(msg)",
+write wifi_merge.reset,
+write wifi_merge_in.reset,
+write wifi_merge_out.reset,
+write wifi_merge_dupes.reset,

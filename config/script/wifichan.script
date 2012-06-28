@@ -1,0 +1,4 @@
+set msg $(sprintf "STATS host=%s changes=%s ifreloads=%s"
+    $(sys.hostname) $(wifi_chan.changes) $(wifi_chan.reloads)),
+write loghandler.log wifi_chan DATA "$(msg)",
+write wifi_chan.reset,

@@ -1,0 +1,27 @@
+--- click-1.7.0rc1/include/clicknet/wifi.h	2009-08-06 16:20:07.047185000 -0400
+@@ -34,13 +34,15 @@
+   uint8_t rssi;
+   uint8_t silence;
+   uint8_t power;
+-  uint8_t pad;
++  uint8_t pad;        /* whether 802.11 header is padded to 4-byte boundary */
+ 
++  /* used by elements that perform bitrate-selection */
+   uint8_t rate;			/* bitrate in Mbps*2 */
+   uint8_t rate1;		/* bitrate in Mbps*2 */
+   uint8_t rate2;		/* bitrate in Mbps*2 */
+   uint8_t rate3;		/* bitrate in Mbps*2 */
+ 
++  /* used by elements that perform bitrate-selection */
+   uint8_t max_tries;
+   uint8_t max_tries1;
+   uint8_t max_tries2;
+@@ -48,7 +50,7 @@
+ 
+   uint8_t virt_col;
+   uint8_t retries;
+-  uint16_t len;
++  uint16_t len;                 /* unused (as of 1.7.0rc1) */
+ } CLICK_SIZE_PACKED_ATTRIBUTE;
+ 
+ 

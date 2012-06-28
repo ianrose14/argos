@@ -1,0 +1,36 @@
+{ node_router='
+    input -> c::Counter() -> detect_aps::DetectMobileAPs(INTERVAL 10) -> Discard;
+    Idle -> Paint(0) -> mux::Mux -> q::Queue -> output;
+    q[1] -> ps::PaintSwitch() -> pkt_qdrops::Counter() -> Discard;
+    loghandler::LogHandler() -> Paint(1) -> q2::Queue -> Unqueue2 -> [1]mux;
+    ps[1] -> mux2::Mux -> log_qdrops::Counter() -> Discard;
+    q2[1] -> [1]mux2;
+
+    FixedChanRotate(HANDLER chan_mgr.lease_channel, INTERVAL 2, SYNCHRONIZE 300);
+    
+    Script(wait 10,
+#include "script/pcap_stats.script"
+
+        set msg $(sprintf "QUERY-STATS host=%s tap=merged count=%u bytes=%u pkt_qdrops=%u log_qdrops=%u"
+                $(sys.hostname) $(c.count) $(c.byte_count) $(pkt_qdrops.count) $(log_qdrops.count)),
+        write loghandler.log script DATA "$(msg)",
+        write c.reset,
+        write pkt_drops.reset,
+        write log_drops.reset,
+
+#include "script/sysinfo_stats.script"
+#include "script/netproxy_stats.script"
+#include "script/wifioverlay.script"
+#include "script/chanmgr_stats.script"
+
+        loop);'
+
+  node_taps='merged'
+
+  server_router='
+    input -> ps::PaintSwitch() -> c::Counter() -> Discard;
+    ps[1] -> loghandler::LogHandler() -> Quit("unexpected loghandler output") -> Discard;
+    Script(wait 10,
+#include "script/sysinfo_stats.script"
+    loop);'
+}

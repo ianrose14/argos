@@ -1,0 +1,9 @@
+--- click-1.7.0rc1/elements/wifi/wifidecap.hh	2009-08-06 17:47:45.706426000 -0400
+@@ -53,6 +53,7 @@
+ 
+   bool _debug;
+   bool _strict;
++  bool _push_eth;
+  private:
+ 
+ };

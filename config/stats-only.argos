@@ -1,0 +1,56 @@
+{
+  name='stats'
+
+  node_router='
+    // prints a stack trace to stderr then re-raises the signal when bad things
+    // happen
+    StackTrace(ACTION RAISE, ILL, ABRT, FPE, SEGV, PIPE);
+
+    pcap_scr::Script(wait 10,
+#include "script/pcap-stats.script"
+         loop);
+    sysinfo_scr::Script(wait 10,
+#include "script/sysinfo-stats.script"
+         loop);
+    queries_scr::Script(wait 10,
+#include "script/queries-stats.script"
+         loop);
+    qfilter_scr::Script(wait 10,
+#include "script/queries-filter-stats.script"
+         loop);
+    wifimerge_scr::Script(wait 10,
+#include "script/wifimerge.script"
+         loop);
+    chanmgr_scr::Script(wait 10,
+#include "script/chanmgr-stats.script"
+         loop);
+    wifichan_scr::Script(wait 10,
+#include "script/wifichan.script"
+         loop);
+    toserver_scr::Script(wait 10,
+#include "script/toserver-stats.script"
+         loop);
+    wifioverlay_scr::Script(wait 10,
+#ifdef ARGOS_USE_CITYMD
+#include "script/wifioverlay-node-citymd.script"
+#else
+#include "script/wifioverlay-node-outdoor.script"
+#endif
+        loop);
+
+    Idle -> output;'
+
+  node_taps=''
+
+  server_router='
+    input -> Idle;
+    
+    Script(wait 10,
+#include "script/sysinfo-stats.script"
+#ifdef ARGOS_USE_CITYMD
+#include "script/wifioverlay-server-citymd.script"
+#else
+#include "script/wifioverlay-server-outdoor.script"
+#endif
+        loop);'
+}

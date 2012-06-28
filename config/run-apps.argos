@@ -1,0 +1,435 @@
+#ifdef ARGOS_USE_CITYMD
+#define ARGOS_DUMPDIR app-dumps/citymd
+#else
+#define ARGOS_DUMPDIR app-dumps/outdoor
+#endif
+
+#include "stats-only.argos"
+#include "pings.argos"
+
+{
+  name="memdebug"
+  active="false"
+  node_router='Idle -> output;
+    s::Script(TYPE PROXY,
+        set msg $(sprintf "STATS host=%s maxrss_kb=%s allocs=%s wm.allocs=%s wm.stored=%s wm.exp_stored=%s wm.in=%s wm.out=%s wm.min=%s"
+                $(sys.hostname) $(sys.max_rss) $(sys.alloc_packets) $(wifi_merge.allocs)
+                $(wifi_merge.packet_count) $(wifi_merge.exp_packet_count) $(wifi_merge_in.count)
+                $(wifi_merge_out.count) $(wifi_merge.min_packet)),
+        write loghandler.log memdebug ERROR "$(msg)");
+    Script(wait 10,
+        set rss $(sys.max_rss),
+        goto begin $(lt $rss 20480),
+        write s.foo,
+        );
+    Script(wait 10,
+        set rss $(sys.max_rss),
+        goto begin $(lt $rss 45000),
+        write s.foo,
+        );'
+}
+
+{
+  name="tracecpu"
+  active="false"
+  node_router='
+    Script(wait 10,
+        set msg $(sprintf "TRACECPU host=%s from_pcap=%s to_server_proxy=%s"
+                $(sys.hostname) $(from_pcap.avg_cpu) $(to_server_proxy.avg_cpu)),
+        write loghandler.log tracecpu INFO "$(msg)",
+        write from_pcap.reset_avgs,
+        write to_server_proxy.reset_avgs,
+        loop);
+
+        Idle -> output;'
+}
+
+// run weighted channel rotation
+{
+  name="weighted-chan-rotate"
+  active="true"
+
+  node_router='
+    // raw tap: for channel hopping we weight channels based only on counts of
+    // management frames and non-null data frames.  The intention is to be
+    // robust against channels with large amounts of ACK or NullData spam (both
+    // of which I have seen in practice).  Of course its possible for other
+    // frame types to be spammed too, so this isnt a perfect solution.
+    input -> wifi_cl::Classifier(0/00%0c, 0/08%4c)  // mgmt, non-null data
+        -> gc::GuessChannel(TRACKER assoc)
+        -> wcr::WeightedChanRotate(HANDLER chan_mgr.lease_channel, PRIORITY 20,
+                                   PERIOD 5, MIN_INTERVAL 0.1)
+        -> Discard();
+
+    wifi_cl[1] -> gc;
+    Idle -> output;'
+
+  node_taps="raw"
+}
+
+// save invalid 802.11 frames
+{
+  name="invalid-wifi"
+  active="false"
+
+  node_router="
+    input -> check_wifi::CheckWifi() -> Discard;
+    check_wifi[1] -> output"
+
+  node_taps="merged"
+  dupes="false"
+
+  server_router="
+    input -> ArgosRadiotapEncap()
+        -> ToRotatingDump(FILENAME invalid-wifi.pcap,
+                          DIR ARGOS_DUMPDIR/invalid-wifi/,
+                          DLT IEEE802_11_RADIO);"
+}
+
+// run TrainTracker (on raw tap) with channel focusing
+{
+  name="train-tracker"
+  active="false"
+
+  node_router="
+    // raw tap: TrainTracker app (with focusing)
+    input -> GuessChannel(TRACKER assoc)
+        -> trains::TrainTracker()
+#ifndef ARGOS_USE_CITYMD
+        -> geo_focus::GeoFocusChannel(FOCUS_HANDLER wifi_ol.proxy_handler_write,
+                                      SETCHAN_HANDLER chan_mgr.lease_channel,
+                                      PRIORITY 10, DURATION 20, COOLDOWN 10)
+#endif
+        -> output;"
+
+  node_taps="raw"
+  dupes="false"
+
+  server_router="
+    input -> ArgosRadiotapEncap()
+       -> ToRotatingDump(FILENAME trains.pcap,
+                         DIR ARGOS_DUMPDIR/trains/,
+                         DLT IEEE802_11_RADIO);"
+}
+
+// parse out data frames of interest (see below) and send them to the server
+// where they can be processed by Snort
+{
+  name="snort"
+  active="true"
+
+  node_router="
+    // when processing 802.11 data frames, these are all of the ethertypes that
+    // snort will pass on for rule-based processing (by inspection of decode.c)
+    define($ETHERTYPE_IP 0x0800);
+    define($ETHERTYPE_ARP 0x0806);
+    define($ETHERTYPE_REVARP 0x8035);
+    define($ETHERTYPE_PAE 0x888E);  // called "EAPOL" by Snort code
+    define($ETHERTYPE_IPV6 0x86dd);
+    define($ETHERTYPE_VLAN 0x8100);  // called "8021Q" by Snort code
+
+    input -> CheckWifi()
+        -> cl::WifiEtherClassifier($ETHERTYPE_IP, $ETHERTYPE_ARP, $ETHERTYPE_REVARP, $ETHERTYPE_PAE, $ETHERTYPE_IPV6, $ETHERTYPE_VLAN);
+
+    cl[0] -> output;
+    cl[1] -> Discard;  // ARPs are discarded for now to reduce traffic
+    cl[2] -> Discard;  // REVARPs are discarded for now to reduce traffic
+    cl[3] -> output;
+    cl[4] -> output;
+    cl[5] -> output;"
+
+  node_taps="merged"
+  dupes="false"
+
+  packet_filter="
+    define($ETHERTYPE_IP 0x0800);
+    define($ETHERTYPE_ARP 0x0806);
+    define($ETHERTYPE_REVARP 0x8035);
+    define($ETHERTYPE_PAE 0x888E);  // called "EAPOL" by Snort code
+    define($ETHERTYPE_IPV6 0x86dd);
+    define($ETHERTYPE_VLAN 0x8100);  // called "8021Q" by Snort code
+
+    input -> cl::WifiEtherClassifier($ETHERTYPE_IP, $ETHERTYPE_PAE, $ETHERTYPE_IPV6, $ETHERTYPE_VLAN, -);
+    cl[0] -> Paint(1) -> output;
+    cl[1] -> Paint(1) -> output;
+    cl[2] -> Paint(1) -> output;
+    cl[3] -> Paint(1) -> output;
+    cl[4] -> output;"
+
+  server_router='
+    Script(TYPE SIGNAL INT, write snort.close, goto quit $(ne $? 0), exit, label quit, stop);
+    Script(TYPE SIGNAL PIPE, write snort.close, goto quit $(ne $? 0), exit, label quit, stop);
+    Script(TYPE SIGNAL TERM, write snort.close, goto quit $(ne $? 0), exit, label quit, stop);
+
+    input -> in_cnt::Counter()
+        -> q::Queue(10000)
+        -> WifiDecap(STRICT true, ETHER true)
+        -> snort::Snort("aux/snort/bin/snort", CONF "config/snort/snort.conf",
+                        LOGDIR ARGOS_DUMPDIR/snort-logs/, ADDL_ARGS "-q -N",
+                        DLT EN10MB, SNAPLEN 1600, STOP true
+#ifdef ARGOS_USE_DATABASE
+            , DB db
+#endif
+        ) -> out_cnt::Counter()
+        -> ToRotatingDump(FILENAME snort-alerts.pcap,
+                          DIR ARGOS_DUMPDIR/snort-alerts/,
+                          DLT EN10MB);
+
+    Script(wait 10,
+        set msg $(sprintf "APP-STATS host=%s in-pkts=%u out-pkts=%u drops=%u qlen=%u"
+                $(sys.hostname) $(in_cnt.count) $(out_cnt.count) $(q.drops) $(q.length)),
+        write loghandler.log snort DATA "$(msg)",
+        write in_cnt.reset,
+        write out_cnt.reset,
+        write q.reset_counts,
+        loop);'
+}
+
+// run BSSTracker
+{
+  name="bss-tracker"
+  active="true"
+
+  node_router='
+    // the citysense nodes appear to (erroneously) respond to probe requests with
+    // probe responses containing ssid=citysense-exp and the wrong bssid, so
+    // filter those out (otherwise it looks like the bss is advertising both
+    // "citysense-exp" and its normal ssid)
+    input -> SSIDFilter("citysense-exp") -> bss::BSSTracker(LOGGING INFO, NETLOG INFO) -> output;
+
+    // save bad packets for later inspection
+    bss[1] -> bad_pkts::SplitFirst(5000) -> Discard;
+    bad_pkts[1] -> RadiotapEncap()
+        -> bad_pkts_dump::ToDump("dumps/bsstracker_bad_pkts.pcap", ENCAP 802_11_RADIO);'
+
+  node_taps="merged"
+  dupes="false"
+
+  // request 802.11 management frames only
+  packet_filter="input -> cl::Classifier(0/00%0c, -) -> Paint(1) -> output; cl[1] -> output"
+
+  server_router="
+    input -> bss::BSSTracker(
+#ifdef ARGOS_USE_DATABASE
+             DB db
+#endif
+        ) -> ArgosRadiotapEncap()
+        ->ToRotatingDump(FILENAME bsstracker.pcap,
+                         DIR ARGOS_DUMPDIR/bsstracker/,
+                         DLT IEEE802_11_RADIO);"
+}
+
+// run APChannelTracker
+{
+  name="ap-channel-tracker"
+  active="false"
+
+  node_router='
+    input -> apc::APChannelTracker() -> output;
+
+    // save bad packets for later inspection
+    apc[1] -> bad_pkts::SplitFirst(5000) -> Discard;
+    bad_pkts[1] -> RadiotapEncap()
+        -> bad_pkts_dump::ToDump("dumps/apchannel_bad_pkts.pcap", ENCAP 802_11_RADIO);'
+
+  node_taps="merged"
+  dupes="false"
+
+  // request 802.11 management frames only
+  packet_filter="input -> cl::Classifier(0/00%0c, -) -> Paint(1) -> output; cl[1] -> output"
+
+  server_router="
+    input -> apc::APChannelTracker(
+#ifdef ARGOS_USE_DATABASE
+             DB db
+#endif
+        )
+        -> ArgosRadiotapEncap()
+        -> ToRotatingDump(FILENAME apchannels.pcap,
+                          DIR ARGOS_DUMPDIR/apchannels/,
+                          DLT IEEE802_11_RADIO);"
+}
+
+// run WebRequestTracker
+{
+  name="web-requests"
+  active="true"
+
+  node_router='
+    define($ETHERTYPE_IP 0x0800);
+
+    wrt::WebRequestTracker(DLT EN10MB) -> output;
+
+    input -> WifiEtherClassifier($ETHERTYPE_IP)
+        -> WifiDecap(STRICT true, ETHER false)
+        -> CheckIPHeader()
+        -> ipc::IPClassifier(dst tcp port 80, src tcp port 80);
+
+    ipc[0] -> [0]wrt;  // http requests go to WebRequestTracker input 0
+    ipc[1] -> [1]wrt;  // http responses go to WebRequestTracker input 1
+
+    // save bad packets for later inspection
+    wrt[1] -> bad_pkts::SplitFirst(5000) -> Discard;
+    bad_pkts[1] -> bad_pkts_dump::ToDump("dumps/webreq_bad_pkts.pcap", ENCAP ETHER);'
+
+  node_taps="merged"
+  dupes="false"
+
+  // request tcp port 80 packets only (note: do NOT use CheckIPHeader() here
+  // because it can modify packets)
+  packet_filter="
+    define($ETHERTYPE_IP 0x0800);
+    input -> cl::WifiEtherClassifier($ETHERTYPE_IP, -)
+        -> cw::CheckWifi()
+        -> WifiDecap(STRICT false, ETHER false, STRIP_FCS false)
+        -> ipc::IPClassifier(dst tcp port 80, src tcp port 80, -);
+    cl[1] -> output;
+    cw[1] -> output;
+    ipc[0] -> StripToMACHeader() -> Paint(1) -> output;
+    ipc[1] -> StripToMACHeader() -> Paint(1) -> output;
+    ipc[2] -> StripToMACHeader() -> output;"
+
+  server_router="
+    input -> wrt::WebRequestTracker(SERVER true
+#ifdef ARGOS_USE_DATABASE
+            , DB db
+#endif
+        );"
+}
+
+// run ProbeRequestTracker
+{
+  name="probe-requests"
+  active="false"
+
+  node_router='
+    input -> prt::ProbeRequestTracker() -> output;
+
+    // save bad packets for later inspection
+    prt[1] -> bad_pkts::SplitFirst(5000) -> Discard;
+    bad_pkts[1] -> RadiotapEncap()
+        -> bad_pkts_dump::ToDump("dumps/proberesp_bad_pkts.pcap", ENCAP 802_11_RADIO);'
+
+  node_taps="merged"
+  dupes="false"
+
+  // request probe requests only
+  packet_filter="input -> cl::Classifier(0/40%fc, -) -> Paint(1) -> output; cl[1] -> output"
+
+  server_router="
+    // dupe-window set to 0 for now to log *everything*
+    input -> prt::ProbeRequestTracker(DUPE_WINDOW 0
+#ifdef ARGOS_USE_DATABASE
+               , DB db
+#endif
+        ) -> Discard;"
+}
+
+// run StationTracker
+{
+  name="station-tracker"
+  active="true"
+
+  node_router='
+    // raw input
+    input[0] -> raw_sta::StationTracker(INTERVAL 300, MERGED false) -> output;
+
+    // merged input
+    input[1] -> merged_sta::StationTracker(INTERVAL 300, MERGED true) -> output;
+
+    // save bad packets for later inspection
+    bad_pkts::SplitFirst(5000) -> Discard;
+    bad_pkts[1] -> RadiotapEncap()
+        -> bad_pkts_dump::ToDump("dumps/statracker_bad_pkts.pcap", ENCAP 802_11_RADIO);
+
+    raw_sta[1] -> bad_pkts;
+    merged_sta[1] -> bad_pkts;'
+
+  node_taps="raw, merged"
+  dupes="false"
+
+  // request only frames with a tx address, which requires 16 bytes (e.g. no ACKs, CTSs)
+  packet_filter="input -> cl::CheckLength(15) -> output; cl[1] -> Paint(1) -> output;"
+
+  server_router="
+    input -> sta::StationTracker(SERVER true
+#ifdef ARGOS_USE_DATABASE
+            , DB db
+#endif
+        );"
+}
+
+// run traffic counters
+{
+  name="traffic-counter"
+  active="true"
+
+  node_router='
+    define($TCP_TRACKER_PORTS 20-21 22 23 25 53 80 110 143 137-139 443 993-995 1194 1214 1900 3723-3724 4662 4672 6881-6889 6890-6999 1-65535);
+    define($UDP_TRACKER_PORTS 53 69 161-162 1-65535);
+
+    // raw tap:
+    raw_tracker::TrafficCounter(DLT IEEE802_11, TCP_PORTS $TCP_TRACKER_PORTS,
+                                UDP_PORTS $UDP_TRACKER_PORTS, INTERVAL 300, MERGED false);
+    input -> raw_tracker -> Discard;
+
+    // merged tap:
+    merged_tracker::TrafficCounter(DLT IEEE802_11, TCP_PORTS $TCP_TRACKER_PORTS,
+                                   UDP_PORTS $UDP_TRACKER_PORTS, INTERVAL 300, MERGED true);
+    input[1] -> merged_tracker -> Discard;
+
+    raw_tracker[1] -> Discard;  // raw reports disabled currently
+    merged_tracker[1] -> output;'
+
+  node_taps="raw, merged"
+  dupes="false"
+
+  packet_filter="input -> Paint(1) -> output"
+
+  server_router="
+    input -> TrafficCounter(SERVER true
+#ifdef ARGOS_USE_DATABASE
+             , DB db
+#endif
+        );"
+}
+
+// run AssocTracker
+{
+  name="assoc-tracker"
+  active="true"
+
+  node_router="
+    input -> assoc::AssocTracker() -> Discard;
+    assoc[1] -> output;"
+
+  node_taps="merged"
+  dupes="false"
+
+  // request non-null 802.11 data frames only
+  packet_filter="input -> cl::Classifier(0/08%4c, -) -> Paint(1) -> output; cl[1] -> output"
+
+  server_router="
+    input -> assoc::AssocTracker(
+#ifdef ARGOS_USE_DATABASE
+               DB db
+#endif
+        ) -> Discard;"
+}
+
+// run pretty print, with NO packets selected via packet-filtering (i.e. this
+// query will only receive packets selected by other queries running at the same
+// time)
+{
+  name="pretty-print"
+  active="false"
+
+  node_router="input -> PrettyPrint(DLT IEEE802_11, MAXLENGTH 256, NUMBER true,
+                                    DETAILED true, TIMESTAMP true) -> Discard;
+               Idle -> output"
+
+  node_taps="merged"
+  dupes="false"
+
+  packet_filter="input -> output"
+}

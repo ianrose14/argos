@@ -1,0 +1,26 @@
+{
+  name='pings'
+  active='true'
+
+  node_router='lm::LifeMonitor(INTERVAL 1, ERRORS true) -> SetPacketType(FASTROUTE) -> output;'
+
+  server_router='input -> lm::LifeMonitor(ERRORS true);
+      Script(set n $(inspect.num_nodes),
+          label do_wait,
+          wait 10,
+          set curtime $(now),
+          set i 0,
+          label iteration,
+          goto do_wait $(eq $i $n),
+          set h $(sprintf "inspect.ip_%d" $i),
+          set ip $($h),
+          set i $(add $i 1),
+          set lastping $(lm.last_ping $ip),
+          set msg $(sprintf "STATS host=%s peer=%s avg-delay-ms=%s last-ping=%s count=%s drops=%s"
+                    $(sys.hostname) $ip $(lm.latency_ms $ip) $lastping
+                    $(lm.count $ip) $(lm.drops $ip)),
+          write loghandler.log pings DATA "$(msg)",
+          goto iteration $(eq $lastping 0),
+          write lm.reset_counts $ip,
+          goto iteration);'
+}

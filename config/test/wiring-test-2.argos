@@ -1,0 +1,46 @@
+# same as wiring-check.argos except that some queries are removed so that the
+# 'streamer query' will operate at the IP level instead of the RAW level.
+
+
+# node router with 0 taps and no server router
+{ node_router="Idle -> output" }
+{ node_router="Message('booyeah'); Idle -> output" }
+
+# node router with 1 tap and no server router
+{ node_router="input -> Discard; Idle -> output" node_taps="raw" }
+{ node_router="input -> Discard; Idle -> output" node_taps="merged" }
+{ node_router="input -> Discard; Idle -> output" node_taps="ip" }
+{ node_router="input -> Discard; Idle -> output" node_taps="tcp" }
+
+# node router with >1 tap and no server router
+{ node_router="input -> Discard; input[1] -> Discard; Idle -> output" node_taps="raw,merged" }
+{ node_router="input -> Discard; input[1] -> Discard; Idle -> output" node_taps="merged,tcp" }
+{ node_router="input -> Discard; input[1] -> Discard; input[2] -> Discard; input[3] -> Discard; Idle -> output" node_taps="tcp,raw,merged,ip" }
+
+# node router and server router with 0 taps
+{ node_router="input -> Discard; Idle -> output" node_taps="raw"
+  server_router="input -> Discard;" }
+
+# node router and server router with 1 tap
+{ node_router="input -> Discard; Idle -> output" node_taps="raw"
+  server_router="input -> Discard; input[1] -> Discard;" server_taps="ip" }
+{ node_router="input -> Discard; Idle -> output" node_taps="raw"
+  server_router="input -> Discard; input[1] -> Discard;" server_taps="tcp" }
+
+# node router and server router with >1 tap
+{ node_router="input -> Discard; Idle -> output" node_taps="raw"
+  server_router="input -> Discard; input[1] -> Discard; input[2] -> Discard;" server_taps="ip,tcp" }
+{ node_router="input -> Discard; Idle -> output" node_taps="raw"
+  server_router="input -> Discard; input[1] -> Discard; input[2] -> Discard;" server_taps="tcp,ip" }
+
+# server router with 0 taps and no node router
+{ server_router="input -> Discard;" }
+{ server_router="input -> Print -> Discard;" }
+
+# server router with 1 tap and no node router
+{ server_router="input -> Discard; input[1] -> Discard;" server_taps="ip" }
+{ server_router="input -> Discard; input[1] -> Discard;" server_taps="tcp" }
+
+# server router with >1 taps and no node router
+{ server_router="input -> Discard; input[1] -> Discard; input[2] -> Discard;" server_taps="ip,tcp" }
+{ server_router="input -> Discard; input[1] -> Discard; input[2] -> Discard;" server_taps="tcp,ip" }

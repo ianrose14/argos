@@ -1,0 +1,34 @@
+{
+  name='inspect-test'
+
+  node_router=' Idle -> output;
+      Script(read inspect.num_queries,
+          print $(sprintf "query 0 is \"%s\"" $($(sprintf "inspect.query_%d" 0))),
+          read inspect.num_nodes,
+          set n $(inspect.num_nodes),
+          set i 0,
+          label iteration,
+          goto end $(eq $i $n),
+          set h $(sprintf "inspect.host_%d" $i),
+          read $h,
+          set h $(sprintf "inspect.ip_%d" $i),
+          read $h,
+          set i $(add $i 1),
+          goto iteration,
+          stop);'
+
+  server_router='input -> Discard;
+      Script(read inspect.num_queries,
+          read inspect.num_nodes,
+          set n $(inspect.num_nodes),
+          set i 0,
+          label iteration,
+          goto end $(eq $i $n),
+          set h $(sprintf "inspect.host_%d" $i),
+          read $h,
+          set h $(sprintf "inspect.ip_%d" $i),
+          read $h,
+          set i $(add $i 1),
+          goto iteration,
+          stop);'
+}

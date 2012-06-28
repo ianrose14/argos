@@ -1,0 +1,11 @@
+set msg $(sprintf "STATS host=%s kern-recv=%u kern-drop=%u mem-drop=%u pre-capt-pkts=%u pre-capt-bytes=%u post-capt-pkts=%u post-capt-bytes=%u filter-pkts=%u filter-bytes=%u"
+        $(sys.hostname) $(from_pcap.kernel_recv) $(from_pcap.kernel_drops)
+        $(from_pcap.mem_drops)
+        $(pre_capt_cnt.count) $(pre_capt_cnt.byte_count)
+        $(post_capt_cnt.count) $(post_capt_cnt.byte_count)
+        $(filter_cnt.count) $(filter_cnt.byte_count)),
+write loghandler.log pcap INFO "$(msg)",
+write from_pcap.reset,
+write pre_capt_cnt.reset,
+write post_capt_cnt.reset,
+write filter_cnt.reset,

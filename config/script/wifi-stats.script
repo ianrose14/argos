@@ -1,0 +1,4 @@
+set msg $(sprintf "STATS host=%s bss-count=%u clients=%u aps=%u ibss-stations=%u"
+        $(sys.hostname) $(bss.bss_count)
+        $(assoc.client_count) $(assoc.infra_ap_count) $(assoc.ibss_ap_count)),
+write loghandler.log wifi DATA "$(msg)",

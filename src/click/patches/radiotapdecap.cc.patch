@@ -1,0 +1,44 @@
++++ click-1.7.0rc1/elements/wifi/radiotapdecap.cc	2009-08-17 21:40:20.157486000 -0400
+@@ -122,8 +122,24 @@
+ 	struct ieee80211_radiotap_header *th = (struct ieee80211_radiotap_header *) p->data();
+ 	struct click_wifi_extra *ceh = WIFI_EXTRA_ANNO(p);
+ 	if (rt_check_header(th, p->length())) {
++		memset((void*)ceh, 0, sizeof(struct click_wifi_extra));
+ 		ceh->magic = WIFI_EXTRA_MAGIC;
+ 
++		if (rt_el_present(th, IEEE80211_RADIOTAP_FLAGS)) {
++			u_int8_t flags = *((u_int8_t *) rt_el_offset(th, IEEE80211_RADIOTAP_FLAGS));
++			if (flags & IEEE80211_RADIOTAP_F_DATAPAD) {
++				ceh->pad = 1;
++			}
++
++                        // Do NOT strip last 4 bytes of the packet if the 'frame
++                        // includes FCS' flag is set.  Firstly, the FCS field is
++                        // not a radiotap field (its an 802.11 field) so this
++                        // element has no business removing it.  Second, the
++                        // packet may not be complete (due to small snaplen
++                        // during capturing, for example) in which case the last
++                        // 4 bytes of the Packet p may not actually be the FCS.
++		}
++
+ 		if (rt_el_present(th, IEEE80211_RADIOTAP_RATE)) {
+ 			ceh->rate = *((u_int8_t *) rt_el_offset(th, IEEE80211_RADIOTAP_RATE));
+ 		}
+@@ -151,16 +170,13 @@
+ 			ceh->flags |= WIFI_EXTRA_TX;
+ 			if (flags & IEEE80211_RADIOTAP_F_TX_FAIL)
+ 				ceh->flags |= WIFI_EXTRA_TX_FAIL;
+-
+-			if (flags & IEEE80211_RADIOTAP_F_FCS) {
+-				p->take(4);
+-			}
+ 		}
+ 
+ 		if (rt_el_present(th, IEEE80211_RADIOTAP_DATA_RETRIES))
+ 			ceh->retries = *((u_int8_t *) rt_el_offset(th, IEEE80211_RADIOTAP_DATA_RETRIES));
+ 
+ 		p->pull(th->it_len);
++		p->set_mac_header(p->data());  // reset mac-header pointer
+ 	}
+ 
+   return p;

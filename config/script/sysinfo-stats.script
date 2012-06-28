@@ -1,0 +1,4 @@
+set msg $(sprintf "SYSINFO host=%s cpu-1=%s cpu-10=%s cpu-60=%s cpu-all=%s mem-total-kb=0 maxrss-kb=%s alloc-pkts=%s"
+        $(sys.hostname) $(sys.cpu_1) $(sys.cpu_10) $(sys.cpu_60) $(sys.cpu_all)
+        $(sys.max_rss) $(sys.alloc_packets)),
+write loghandler.log system INFO "$(msg)",

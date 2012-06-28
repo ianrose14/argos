@@ -1,0 +1,228 @@
+
+----  Argos Guide  ----
+
+Author: Ian Rose
+Date Created: Aug 3, 2009
+Last Modified: Aug 3, 2009
+
+
+I. Introduction
+------------------------------------------------------------------------------
+
+Argos is a distributed sniffer architecture.  The high-level idea is that
+(trusted) users write "queries", which represent some kind of wireless sniffing
+task or job, and submit them to Argos to be run.  Example queries include
+(i) traditional security-related queries (e.g. searching for known worm
+signatures), such as those commonly run in Snort, (ii) wireless-specific
+exploits (e.g. searching for deauth-flood attacks), such as those commonly
+searched for by the MAP project at Dartmouth, and (iii) wireless-traffic
+characterization queries (e.g. what is the distribution of TCP traffic, broken
+down by port number), as is commonly seen in traffic characterization studies (a
+la IMC).
+
+
+II. Basic Architecture
+------------------------------------------------------------------------------
+
+Argos consists of two distinct applications: the sniffer executable (named
+'argosniffer') which runs on the sniffer nodes themselves, and the server
+executable, which runs on some central server that each sniffer node has network
+access to (the server may, in fact, be one of the sniffer nodes, but there is a
+logical separation).
+
+The sniffer executable is a libpcap-based C program.  Its primary function is to
+collect 802.11 frames of interest and forward them to the server.  Currently,
+frames are forwarded in raw format but should bandwidth (or other resource
+limits) become an issue in the future, some form of lossless and/or lossy
+compression of frames may be requires.  Additionally, currently sniffer nodes
+have NO contact with each-other; in other words the communications graph is a
+strict 1-to-N tree.  Again, this may change in the future if applications arise
+that require this functionality (e.g. very tight latency requirements).
+
+The server executable is built as a Click router.  Its primary function is to
+receive captured 802.11 frames from sniffers, merge them into a unified stream,
+and pass them on to the various user queries for processing.  Queries are
+specified at startup time via a configuration file and cannot (currently) be
+added on-the-fly while the server is running.
+
+
+III. Queries
+------------------------------------------------------------------------------
+
+In the intended use case, end-users interact with the system only by writing
+queries.  The sniffer executables can run continuously and do not need to be
+restarted (like the server) if queries are changed or added.  A query consists
+of a 4-tuple:
+  - priority
+  - Click router
+  - mode (optional, defaults to "merged")
+  - bpf filter expression (optional, defaults to "" which captures everything)
+
+
+__Priority__
+
+Each query must specify a priority in the range [0,15] (with 0 being the
+highest), although multiple queries may share the same priority level.  The
+priority of a query is used in many ways throughout the system, although these
+primarily fall into two camps: query isolation and conflict resolution.  Query
+isolation refers to the fact that each sniffer opens up a separate BPF
+descriptor for each priority level (all queries at a given priority share the
+same BPF descriptor).  The advantage of this is that if a sniffer node is unable
+to keep up with the stream of frames being captured because of a low (weak)
+priority query with a very general BPF filter, frames will be dropped only from
+that priority level.  If the same sniffer node is also capturing frames for a
+query with a higher (stronger) priority level and a more specific BPF filter,
+that (presumably more important query) will not drop frames.
+
+Conflict resolution comes into play whenever two different queries compete for a
+scare resource which can only be awarded to one of the queries.  Currently the
+only situation where this arises is when queries set a sniffer's 802.11 channel
+(see below for more details) - if two queries attempt to set a sniffer's radio
+to different channels, the lower (stronger) priority query "wins".
+
+TODO - flesh out this section more
+
+
+__Mode__
+
+The mode of a query can be either "merged" (the default) or "raw".  In "raw"
+mode, the query will receive all captured packets as they are received by the
+Argos server.  In "merged" mode, the query will instead receive packets only as
+they are output by a WifiMerge element which attempts to eliminate duplicate
+records of the same packet (e.g. if two different sniffers each overhear and
+capture the same packet transmission).  Each packet output by the WifiMerge
+element will have a special header prepended which contains information on which
+sniffers captured that packet.  This header can be removed with the
+WifiMergeDecap element or printed with the WifiMergePrint element.
+
+
+__Click Router__
+
+The actual "work" that query does is implemented in a click router
+configuration.  Although all standard click elements can be used, and new click
+elements can be created and used, a few standards must be followed.
+
+1) All routers must use a FromDevice element named 'input' as their packet
+source (the device name, a required parameter to the FromDevice element, is
+ignored and can be anything).  Here is an example router that prints out any TCP
+packet it receives:
+
+input :: FromDevice(x)
+      -> RadiotapDecap()
+      -> WifiDecap()
+      -> Classifier(12/0800  /* IP packets */)
+      -> CheckIPHeader(14, VERBOSE true)
+      -> ipc :: IPClassifier(tcp)
+      -> Print("tcp packet")
+      -> Discard;
+
+2) In addition to captured frames, routers may optionally also elect to receive
+special "stats" messages sent periodically by routers.  These messages contain
+useful information such as the number of frames dropped by libpcap, or the
+number of frames dropped by the sniffer application itself due to queue
+overflows.  In order to receive these messages, the router must use a FromDevice
+element named 'stats' as the packet source (again, the device name is ignored).
+
+
+__BPF Filter__
+
+A query may optionally specify a BPF filter expression to restrict the number of
+frames that sniffers will capture on behalf of that query.  This is beneficial
+because it reduces the load on each sniffer load and reduces the chance of
+frames being dropped by either libpcap or the sniffer application.  However, a
+sniffer must not assume that its click router will receive *only* frames
+matching that expression.  For example, if a query utilizing the router
+configuration above specified a BPF filter expression of "tcp", you could not
+rewrite the router configuration to remove the Classifier and IPClassifier
+elements, thinking them redundant, as there is no guarantee that only tcp frames
+will be output by the input::FromDevice element.
+
+
+IV. Sending Commands
+------------------------------------------------------------------------------
+
+TODO - this section to be filled in
+
+
+V. Getting Started
+------------------------------------------------------------------------------
+
+TODO - these may not be exactly right, let me know if stuff doesn't work
+
+1. svn update
+2. make click-conf  (this will take a while, but only needs to be done once)
+3. make all
+
+At this point you will have the argosniffer executable built in bin, and
+symbolic links in bin to the click and click-combine executables (which actually
+live in click-1.7.0rc1/build/bin).
+
+
+__Running The Server__
+
+First create a configuration file that lists all of the queries that you want to
+run.  And example is checked in under "config/test.argos".  More examples to
+come!  The format of the file is pretty simple: 1 query per line, consisting of
+a whitespace-separated series of "key=value" pairs.  The supported fields are:
+
+  priority -- required; value should be an integer
+  query    -- value should be a string specifying (inline) the query's router
+              configuration
+  file     -- value should be the name of a file containing the query's router
+              configuration (either 'query' or 'file' is required; 
+  bpf      -- optional; value should be a valid BPF filter expression (see `man
+              tcpdump` for details)
+  stats    -- optional; value should be 'true' or 'false' and must correspond to
+              whether or not the query's router configuration uses a
+	      stats::FromDevice element
+
+Next, simply run `scripts/run-argos-queries.py FILE`.  This script will create a
+single, unified click router configuration containing all of the specified
+queries (plus some other elements to implement the plumbing necessary to get
+captured frames to each query) and then exec(2) the click executable, passing it
+this unified router configuration to run.
+
+In order to enable more verbose (debugging) output in the server, pass the '-g'
+flag to this script.
+
+
+__Running The Sniffers__
+
+You have two options when running sniffer(s).  The easiest, especially when
+starting, is to "capture" from a pcap file on disk instead of capturing live
+traffic.  This ensures repeatability when debugging and also is convenient
+because you can run it from any machine regardless of whether that machine has
+a network interface capable of 802.11 capture.  Here is are some example usages:
+
+print usage help:
+>   ./bin/argosniffer -h
+
+capture from file foo.pcap
+>   ./bin/argosniffer -r foo.pcap
+
+capture from file foo.pcap, with debugging output
+>  ./bin/argosniffer -g -r foo.pcap
+
+If you see the following message being repeated,
+"WARNING   connect failed at line [...]: Connection refused"
+this indicates that the sniffer is unable to contact the server (probably its
+not running).
+
+
+To capture live traffic, copy the argosniffer executable as well as the file
+argos.cfg to a sniffer node and run something like the following:
+
+>  sudo ./bin/argosniffer -g -i ath0
+
+
+------------------------------------------------------------
+--  Experiments Guide
+------------------------------------------------------------
+
+I. Comparison of channel hopping strategies:
+
+example set of commands:
+
+~/scripts/nodeExec.py -n "`cat channel-exp-nodes.regex`" "cd code/argos;
+./bin/argosniffer -p 9977 -d -c channel_exp.cfg -P channel-event-pcaps 2>out.err"
+

@@ -1,0 +1,9 @@
+{ node_router='loghandler::LogHandler() -> Queue -> output;
+  script::Script(wait 10,
+      read adj_skew.dump_all_pairs,
+      read adj_skew.dump_base_paths,
+#include "../script/wifimerge.script"
+#include "../script/wifioverlay.script"
+#include "../script/sysinfo_stats.script"
+      loop);'
+}

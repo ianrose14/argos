@@ -1,0 +1,11 @@
+{ node_router='loghandler::LogHandler();
+  Script(set start_time $(now),
+        set interval 10,
+        label start,
+        wait $interval,
+        print "----------  WifiOverlay Routing Table ----------",
+        read wifi_ol.routes,
+        print "------------------------------------------------",
+        goto start);
+        Idle -> output';
+}

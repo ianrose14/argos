@@ -1,0 +1,27 @@
++++ click-1.7.0rc1/elements/wifi/radiotapencap.cc	2009-08-18 11:15:56.502145000 -0400
+@@ -30,6 +30,7 @@
+ 
+ 
+ #define CLICK_RADIOTAP_PRESENT (		\
++	(1 << IEEE80211_RADIOTAP_FLAGS)		| \
+ 	(1 << IEEE80211_RADIOTAP_RATE)		| \
+ 	(1 << IEEE80211_RADIOTAP_DBM_TX_POWER)	| \
+ 	(1 << IEEE80211_RADIOTAP_RTS_RETRIES)	| \
+@@ -38,6 +39,7 @@
+ 
+ struct click_radiotap_header {
+ 	struct ieee80211_radiotap_header wt_ihdr;
++	u_int8_t        wt_flags;
+ 	u_int8_t	wt_rate;
+ 	u_int8_t	wt_txpower;
+ 	u_int8_t        wt_rts_retries;
+@@ -97,6 +99,9 @@
+ 	  if (ceh->max_tries > 0) {
+ 		  crh->wt_data_retries = ceh->max_tries - 1;
+ 	  }
++          if (ceh->pad) {
++              crh->wt_flags |= IEEE80211_RADIOTAP_F_DATAPAD;
++          }
+   }
+ 
+   return p_out;

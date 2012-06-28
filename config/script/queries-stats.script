@@ -1,0 +1,21 @@
+set msg $(sprintf "STATS host=%s query="loghandler" id=log in-pkts=0 out-pkts=%u out-bytes=%u drop-pkts=%u qlen=%u"
+        $(sys.hostname) $(log_out.count) $(log_out.byte_count) $(log_drops.count) $(log_queue.length)),
+write loghandler.log queries DATA "$(msg)",
+write log_out.reset_counts,
+write log_drops.reset_counts,
+set n $(inspect.num_queries),
+set i 0,
+label queries_stats_iteration,
+set msg $(sprintf "STATS host=%s query=\"%s\" id=q%d in-pkts=%u in-bytes=%u out-pkts=%u out-bytes=%u drop-pkts=%u qlen=%u"
+        $(sys.hostname) "$($(sprintf "inspect.query_%d" $i))" $i
+        $($(sprintf "q%d_in.count" $i)) $($(sprintf "q%d_in.byte_count" $i))
+        $($(sprintf "q%d_out.count" $i)) $($(sprintf "q%d_out.byte_count" $i))
+        $($(sprintf "q%d_drops.count" $i)) $($(sprintf "q%d_queue.length" $i))),
+write loghandler.log queries DATA "$(msg)",
+write $(sprintf "q%d_in.reset_counts" $i),
+write $(sprintf "q%d_out.reset_counts" $i),
+write $(sprintf "q%d_drops.reset_counts" $i),
+set i $(add $i 1),
+goto queries_stats_end $(eq $i $n),
+goto queries_stats_iteration,
+label queries_stats_end,

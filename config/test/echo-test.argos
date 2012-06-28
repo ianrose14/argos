@@ -1,0 +1,12 @@
+{ node_router='loghandler::LogHandler; src::InfiniteSource(\<1111222233334444>) -> Script(TYPE PACKET, write src.active false) -> Queue(10) -> output;  Script(wait 1, write src.active true, loop);'
+  server_router='input -> Print("Echo Test") -> Discard;'
+}
+
+{ node_router='src::InfiniteSource(\<0101010101010101010101010101010101010101>) -> Script(TYPE PACKET, write src.active false) -> Paint(3) -> Queue(10) -> output; Script(wait 3, write src.active true, loop);'
+  server_router='input -> cp::CheckPaint(3) -> Print("Good Paint") -> Discard;
+                 cp[1] -> Print("Bad Paint!!!") -> Discard;'
+}
+
+{ node_router='src::InfiniteSource(\<9999>) -> Script(TYPE PACKET, write src.active false) -> Queue(10) -> output; Script(wait 0.33, write src.active true, loop);'
+  server_router='input -> Print("Fast Echo Test") -> Discard;'
+}

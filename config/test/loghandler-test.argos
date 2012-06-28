@@ -1,0 +1,25 @@
+{ node_router='loghandler::LogHandler() -> Queue(1000) -> output;
+  Script(set interval 1,
+         label start,
+         wait $interval,
+         set msg $(sprintf "hi this is an DEBUG test.  now=%s" $(now)),
+         write loghandler.log script DEBUG "$(msg)",
+         wait $interval,
+         set msg $(sprintf "hi this is a DATA test.  now=%s" $(now)),
+         write loghandler.log script DATA "$(msg)",
+         wait $interval,
+         set msg $(sprintf "hi this is an INFO test.  now=%s" $(now)),
+         write loghandler.log script INFO "$(msg)",
+         wait $interval,
+         set msg $(sprintf "hi this is a WARNING test.  now=%s" $(now)),
+         write loghandler.log script WARNING "$(msg)",
+         wait $interval,
+         set msg $(sprintf "hi this is a ERROR test.  now=%s" $(now)),
+         write loghandler.log script ERROR "$(msg)",
+         wait $interval,
+         set msg $(sprintf "hi this is a CRITICAL test.  now=%s" $(now)),
+         write loghandler.log script CRITICAL "$(msg)",
+         goto start);';
+
+  server_router='input -> loghandler::LogHandler() -> Quit("unexpected loghandler output") -> Discard;'
+}
